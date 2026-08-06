@@ -1,13 +1,21 @@
 version: "3.3"
+networks:
+  k6net:
+    driver: bridge
+
 services:
   influxdb:
     image: influxdb:1.8.2
+    networks:
+      - k6net
     ports:
       - "8086:8086"
     environment:
       - INFLUXDB_DB=k6
   grafana:
     image: grafana/grafana:8.1.2
+    networks:
+      - k6net
     ports:
       - "3000:3000"
     environment:
@@ -17,14 +25,18 @@ services:
     volumes:
       - ./shared/grafana:/etc/grafana/provisioning/
   simulado:
-    image : ldabiralai/simulado:latest
+    image: ldabiralai/simulado:latest
+    networks:
+      - k6net
     ports:
       - "3001:80"
     volumes:
       - ./shared/simulado:/app
     command: ./bin/simulado -f /app/mocks.json
   k6:
-    image: loadimpact/k6:0.28.0
+    image: grafana/k6:latest
+    networks:
+      - k6net
     ports:
       - "6565:6565"
     volumes:

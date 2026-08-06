@@ -1,0 +1,89 @@
+package com.example.similarproducts.adapter.out.http;
+
+import com.example.similarproducts.adapter.out.http.dto.ProductDetailResponse;
+import com.example.similarproducts.domain.model.ProductDetail;
+import com.example.similarproducts.domain.model.exception.ProductNotFoundException;
+import com.example.similarproducts.domain.port.out.ProductDetailPort;
+import com.example.similarproducts.domain.port.out.SimilarProductIdsPort;
+import com.example.similarproducts.infrastructure.config.AppConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import java.time.Duration;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
+
+@Component
+public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPort {
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private final WebClient webClient;
+  private final long timeoutMs;
+
+  /** Spring-managed constructor — uses AppConfig for timeout. */
+  @Autowired
+  public ProductApiAdapter(WebClient upstreamWebClient, AppConfig appConfig) {
+    this.webClient = upstreamWebClient;
+    this.timeoutMs = appConfig.timeoutMs();
+  }
+
+  /** Test constructor — allows injecting timeout directly without Spring context. */
+  ProductApiAdapter(WebClient webClient, long timeoutMs) {
+    this.webClient = webClient;
+    this.timeoutMs = timeoutMs;
+  }
+
+  @Override
+  public Mono<List<String>> fetchSimilarIds(String productId) {
+    return webClient
+        .get()
+        .uri("/product/{id}/similarids", productId)
+        .retrieve()
+        .onStatus(
+            status -> status == HttpStatus.NOT_FOUND,
+            response -> Mono.error(new ProductNotFoundException(productId)))
+        .bodyToMono(String.class)
+        .map(
+            body -> {
+              try {
+                return MAPPER.<List<String>>readValue(
+                    body, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+              } catch (Exception e) {
+                throw new RuntimeException("Failed to parse similar ids", e);
+              }
+            })
+        .timeout(Duration.ofMillis(timeoutMs));
+  }
+
+  @Override
+  @CircuitBreaker(name = "productDetail", fallbackMethod = "fetchDetailFallback")
+  public Mono<ProductDetail> fetchDetail(String productId) {
+    return webClient
+        .get()
+        .uri("/product/{id}", productId)
+        .retrieve()
+        .onStatus(
+            status -> status.isError(),
+            response ->
+                Mono.error(
+                    new WebClientResponseException(
+                        response.statusCode().value(),
+                        "Upstream error for product " + productId,
+                        null,
+                        null,
+                        null)))
+        .bodyToMono(ProductDetailResponse.class)
+        .map(dto -> new ProductDetail(dto.id(), dto.name(), dto.price(), dto.availability()))
+        .timeout(Duration.ofMillis(timeoutMs));
+  }
+
+  @SuppressWarnings("unused")
+  private Mono<ProductDetail> fetchDetailFallback(String productId, Throwable ex) {
+    return Mono.error(ex);
+  }
+}

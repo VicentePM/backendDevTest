@@ -1,0 +1,45 @@
+project: backenddevtest
+persistence_mode: hybrid
+strict_tdd: true
+
+context: |
+  Spring Boot 3 (Java 21) technical test. Implements GET /product/{productId}/similar
+  on port 5000 by composing two upstream APIs on localhost:3001
+  (/product/{id}/similarids and /product/{id}). Hexagonal architecture is required.
+  Evaluation focuses on clarity, performance, and resilience. k6 load tests are
+  provided via docker-compose (simulado mock + influxdb + grafana).
+
+stack:
+  language: Java 21
+  framework: Spring Boot
+  architecture: hexagonal
+  build_tool: undecided  # Maven or Gradle — to be chosen in first change
+  port: 5000
+  upstream_base_url: http://localhost:3001
+
+testing:
+  strict_tdd: true
+  runner:
+    command: ./mvnw test  # or ./gradlew test — pending build tool choice
+    framework: JUnit 5
+  layers:
+    unit: JUnit 5 + Mockito
+    integration: Spring Boot Test + WireMock (recommended for upstream stubs)
+    e2e: k6 (docker-compose run --rm k6 run scripts/test.js)
+  coverage:
+    available: true
+    command: ./mvnw verify  # with JaCoCo plugin — to be added
+    target_min: 80
+  quality:
+    linter: none-yet  # recommend Spotless or Checkstyle
+    type_checker: javac
+    formatter: none-yet  # recommend Spotless
+
+phases:
+  proposal: openspec/changes/{change-id}/proposal.md
+  spec: openspec/changes/{change-id}/specs/**/*.md
+  design: openspec/changes/{change-id}/design.md
+  tasks: openspec/changes/{change-id}/tasks.md
+  apply: implement per tasks; keep tests with code
+  verify: run runner + coverage; validate against k6 where relevant
+  archive: sync deltas into openspec/specs/ and move change to openspec/changes/archive/
