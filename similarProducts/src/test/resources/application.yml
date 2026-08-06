@@ -1,0 +1,15 @@
+server:
+  port: 0
+
+upstream:
+  base-url: http://localhost:3001
+  timeout-ms: 3000
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      productDetail:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
