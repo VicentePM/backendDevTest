@@ -1,0 +1,6 @@
+# OpenCode/SDD internal artifacts
+.atl/
+openspec/.atl/
+
+# Local work notes
+work_description.md

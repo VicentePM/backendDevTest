@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 @RestController
 public class SimilarProductsController {
@@ -19,10 +20,8 @@ public class SimilarProductsController {
   }
 
   @GetMapping("/product/{productId}/similar")
-  public ResponseEntity<List<ProductDetail>> getSimilarProducts(
+  public Mono<ResponseEntity<List<ProductDetail>>> getSimilarProducts(
       @PathVariable String productId) {
-    List<ProductDetail> result =
-        useCase.handle(new SimilarProductsQuery(productId)).block();
-    return ResponseEntity.ok(result);
+    return useCase.handle(new SimilarProductsQuery(productId)).map(ResponseEntity::ok);
   }
 }
