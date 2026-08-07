@@ -32,7 +32,15 @@ The system MUST return a `404 Not Found` if the requested base product cannot be
 
 ### Requirement: Handle Upstream Failures and Timeouts
 
-The system MUST enforce a 3-second timeout per product detail call and handle partial failures gracefully. Any product detail call that times out or returns a `404 Not Found` or `500 Internal Server Error` MUST be silently skipped, returning only successfully fetched products.
+The system MUST enforce a per-call timeout on product detail calls and a global response
+timeout, handling partial failures gracefully. Any product detail call that times out or
+returns an error MUST be silently skipped, returning only successfully fetched products.
+If ALL detail calls time out or fail, the system MUST return `200 OK` with an empty array.
+
+The system MUST also handle failures on the `similarids` call (other than a `404 Not Found`)
+gracefully: connection errors, circuit breaker open state, or any unexpected upstream error
+MUST produce a `200 OK` with an empty array rather than a `500 Internal Server Error`.
+Only a `404 Not Found` from `similarids` propagates as a `404` to the caller.
 
 #### Scenario: Slow upstream (Timeout)
 
@@ -57,3 +65,19 @@ The system MUST enforce a 3-second timeout per product detail call and handle pa
 - WHEN a `GET` request is made to `/product/{productId}/similar`
 - THEN the system returns a `200 OK` response
 - AND the failing product is excluded from the returned array
+
+#### Scenario: All similar products time out
+
+- GIVEN a valid `productId` with multiple similar product IDs
+- AND ALL upstream product detail calls take longer than the per-call timeout
+- WHEN a `GET` request is made to `/product/{productId}/similar`
+- THEN the system returns a `200 OK` response
+- AND the response body is an empty JSON array `[]`
+
+#### Scenario: `similarids` upstream fails (non-404)
+
+- GIVEN a valid `productId`
+- AND the upstream `similarids` endpoint returns an error other than `404` (e.g. `500`, connection refused, or circuit breaker open)
+- WHEN a `GET` request is made to `/product/{productId}/similar`
+- THEN the system returns a `200 OK` response
+- AND the response body is an empty JSON array `[]`
