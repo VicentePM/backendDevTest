@@ -28,7 +28,7 @@ class SimilarProductsIntegrationTest {
 
   @BeforeAll
   static void startWireMock() {
-    wireMock = new WireMockServer(WireMockConfiguration.wireMockConfig().port(3001));
+    wireMock = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
     wireMock.start();
   }
 
@@ -41,7 +41,7 @@ class SimilarProductsIntegrationTest {
 
   @DynamicPropertySource
   static void configureUpstream(DynamicPropertyRegistry registry) {
-    registry.add("upstream.base-url", () -> "http://localhost:3001");
+    registry.add("upstream.base-url", () -> "http://localhost:" + wireMock.port());
   }
 
   @BeforeEach

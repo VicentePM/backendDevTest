@@ -8,6 +8,7 @@ import com.example.similarproducts.domain.model.exception.ProductNotFoundExcepti
 import com.example.similarproducts.domain.port.out.ProductDetailPort;
 import com.example.similarproducts.domain.port.out.SimilarProductIdsPort;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,8 @@ class SimilarProductsServiceTest {
 
   @BeforeEach
   void setUp() {
-    service = new SimilarProductsService(similarProductIdsPort, productDetailPort);
+    service = new SimilarProductsService(
+        similarProductIdsPort, productDetailPort, Duration.ofSeconds(10));
   }
 
   // ── Task 2.1 / 2.2: happy path ──────────────────────────────────────────
@@ -93,6 +95,17 @@ class SimilarProductsServiceTest {
     when(similarProductIdsPort.fetchSimilarIds("5")).thenReturn(Mono.just(List.of("10", "11")));
     when(productDetailPort.fetchDetail("10")).thenReturn(Mono.error(new RuntimeException("500")));
     when(productDetailPort.fetchDetail("11")).thenReturn(Mono.error(new RuntimeException("404")));
+
+    StepVerifier.create(service.handle(query))
+        .expectNextMatches(List::isEmpty)
+        .verifyComplete();
+  }
+
+  @Test
+  void handle_returnsEmptyList_whenFetchSimilarIdsFailsWithNonProductNotFoundError() {
+    var query = new SimilarProductsQuery("1");
+    when(similarProductIdsPort.fetchSimilarIds("1"))
+        .thenReturn(Mono.error(new RuntimeException("CB open")));
 
     StepVerifier.create(service.handle(query))
         .expectNextMatches(List::isEmpty)
