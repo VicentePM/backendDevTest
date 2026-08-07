@@ -39,6 +39,7 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
   }
 
   @Override
+  @CircuitBreaker(name = "similarIds", fallbackMethod = "fetchSimilarIdsFallback")
   public Mono<List<String>> fetchSimilarIds(String productId) {
     return webClient
         .get()
@@ -60,8 +61,15 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
         .timeout(Duration.ofMillis(timeoutMs));
   }
 
+  @SuppressWarnings("unused")
+  private Mono<List<String>> fetchSimilarIdsFallback(String productId, Throwable ex) {
+    if (ex instanceof ProductNotFoundException) {
+      return Mono.error(ex);
+    }
+    return Mono.just(List.of());
+  }
+
   @Override
-  @CircuitBreaker(name = "productDetail", fallbackMethod = "fetchDetailFallback")
   public Mono<ProductDetail> fetchDetail(String productId) {
     return webClient
         .get()
@@ -80,10 +88,5 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
         .bodyToMono(ProductDetailResponse.class)
         .map(dto -> new ProductDetail(dto.id(), dto.name(), dto.price(), dto.availability()))
         .timeout(Duration.ofMillis(timeoutMs));
-  }
-
-  @SuppressWarnings("unused")
-  private Mono<ProductDetail> fetchDetailFallback(String productId, Throwable ex) {
-    return Mono.error(ex);
   }
 }
