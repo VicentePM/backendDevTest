@@ -15,6 +15,8 @@ paths:
     get:
       operationId: get-product-similar
       summary: Similar products
+      tags:
+        - SimilarProducts
       responses:
         '200':
           description: OK

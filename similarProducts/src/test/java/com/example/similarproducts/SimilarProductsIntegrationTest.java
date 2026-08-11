@@ -17,6 +17,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import org.springframework.cache.CacheManager;
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SimilarProductsIntegrationTest {
 
@@ -25,6 +27,7 @@ class SimilarProductsIntegrationTest {
   @LocalServerPort private int port;
 
   @Autowired private WebTestClient webTestClient;
+  @Autowired private CacheManager cacheManager;
 
   @BeforeAll
   static void startWireMock() {
@@ -47,6 +50,8 @@ class SimilarProductsIntegrationTest {
   @BeforeEach
   void resetStubs() {
     wireMock.resetAll();
+    var cache = cacheManager.getCache("productDetails");
+    if (cache != null) cache.clear();
   }
 
   // ── Scenario 1: productId=1, all return 200 ──────────────────────────────
@@ -172,5 +177,55 @@ class SimilarProductsIntegrationTest {
         .uri("/product/999/similar")
         .exchange()
         .expectStatus().isEqualTo(HttpStatus.NOT_FOUND);
+  }
+
+  // ── Scenario 6: CB open, ProductNotFoundException is ignored → still 404 ──
+
+  @Test
+  void whenCircuitBreakerOpen_shouldStillReturn404() {
+    // Flood with 404s to exceed the sliding window (size=20, threshold=80%)
+    wireMock.stubFor(
+        get(urlEqualTo("/product/999/similarids"))
+            .willReturn(aResponse().withStatus(404)));
+
+    for (int i = 0; i < 25; i++) {
+      webTestClient
+          .get()
+          .uri("/product/999/similar")
+          .exchange();
+    }
+
+    // Reset stubs — CB may be open now, but ProductNotFoundException is ignored
+    wireMock.resetAll();
+
+    // One more request — even if CB is open, ignore-exceptions means 404 still propagates
+    webTestClient
+        .get()
+        .uri("/product/999/similar")
+        .exchange()
+        .expectStatus().isEqualTo(HttpStatus.NOT_FOUND);
+  }
+
+  // ── Scenario 7: fetchDetail cache — upstream called only once ────────────
+
+  @Test
+  void fetchDetail_whenCalledTwice_shouldHitCache() {
+    // Product 100's similar list contains product 1
+    wireMock.stubFor(
+        get(urlEqualTo("/product/100/similarids"))
+            .willReturn(okJson("[\"1\"]")));
+
+    wireMock.stubFor(
+        get(urlEqualTo("/product/1"))
+            .willReturn(okJson("{\"id\":\"1\",\"name\":\"Shirt\",\"price\":9.99,\"availability\":true}")));
+
+    // First request — fetches and caches detail for product 1
+    webTestClient.get().uri("/product/100/similar").exchange().expectStatus().isOk();
+
+    // Second request — detail for product 1 must come from cache
+    webTestClient.get().uri("/product/100/similar").exchange().expectStatus().isOk();
+
+    // Upstream /product/1 (detail) must be called only once across both requests
+    wireMock.verify(exactly(1), getRequestedFor(urlEqualTo("/product/1")));
   }
 }

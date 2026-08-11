@@ -1,6 +1,11 @@
 server:
   port: 5000
 
+spring:
+  cache:
+    type: caffeine
+    cache-names: productDetails
+
 upstream:
   base-url: http://localhost:3001
   timeout-ms: 2000
@@ -15,3 +20,5 @@ resilience4j:
         wait-duration-in-open-state: 5s
         permitted-number-of-calls-in-half-open-state: 10
         register-health-indicator: true
+        ignore-exceptions:
+          - com.example.similarproducts.domain.model.exception.ProductNotFoundException
