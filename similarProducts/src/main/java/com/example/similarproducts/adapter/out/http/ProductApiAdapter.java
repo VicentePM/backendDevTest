@@ -11,6 +11,9 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -24,18 +27,21 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
 
   private final WebClient webClient;
   private final long timeoutMs;
+  private final CacheManager cacheManager;
 
   /** Spring-managed constructor — uses AppConfig for timeout. */
   @Autowired
-  public ProductApiAdapter(WebClient upstreamWebClient, AppConfig appConfig) {
+  public ProductApiAdapter(WebClient upstreamWebClient, AppConfig appConfig, CacheManager cacheManager) {
     this.webClient = upstreamWebClient;
     this.timeoutMs = appConfig.timeoutMs();
+    this.cacheManager = cacheManager;
   }
 
   /** Test constructor — allows injecting timeout directly without Spring context. */
   ProductApiAdapter(WebClient webClient, long timeoutMs) {
     this.webClient = webClient;
     this.timeoutMs = timeoutMs;
+    this.cacheManager = new NoOpCacheManager();
   }
 
   @Override
@@ -71,7 +77,20 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
 
   @Override
   public Mono<ProductDetail> fetchDetail(String productId) {
-    return webClient
+    // Manual cache lookup — @Cacheable does not unwrap Mono<T> with CaffeineCacheManager.
+    Cache cache = cacheManager.getCache("productDetails");
+    if (cache != null) {
+      Cache.ValueWrapper cached = cache.get(productId);
+      if (cached != null) {
+        @SuppressWarnings("unchecked")
+        Mono<ProductDetail> hit = (Mono<ProductDetail>) cached.get();
+        return hit;
+      }
+    }
+
+    // .cache() memoizes the emitted value so multiple subscribers share one HTTP call.
+    // doOnError evicts the entry so transient errors (timeout, 5xx) are never cached permanently.
+    Mono<ProductDetail> upstream = webClient
         .get()
         .uri("/product/{id}", productId)
         .retrieve()
@@ -87,6 +106,13 @@ public class ProductApiAdapter implements SimilarProductIdsPort, ProductDetailPo
                         null)))
         .bodyToMono(ProductDetailResponse.class)
         .map(dto -> new ProductDetail(dto.id(), dto.name(), dto.price(), dto.availability()))
-        .timeout(Duration.ofMillis(timeoutMs));
+        .timeout(Duration.ofMillis(timeoutMs))
+        .doOnError(ex -> { if (cache != null) cache.evict(productId); })
+        .cache();
+
+    if (cache != null) {
+      cache.put(productId, upstream);
+    }
+    return upstream;
   }
 }
